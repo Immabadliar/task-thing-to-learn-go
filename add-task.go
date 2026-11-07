@@ -1,34 +1,79 @@
 package main
 
 import (
-	"fyne.io/fyne/v2/widget"
+	"strings"
+
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/widget"
 )
 
-func AddTask(win fyne.Window, name string, active *fyne.Container, archive *fyne.Container) {
-	var newCheckbox *widget.Check
+type taskManager struct {
+	window  fyne.Window
+	path    string
+	tasks   []Task
+	active  *fyne.Container
+	archive *fyne.Container
+}
 
-	newCheckbox = widget.NewCheck(name, func(checked bool) {
-		if newCheckbox.Checked == true {
-			active.Remove(newCheckbox)
-			archive.Add(newCheckbox)
-			active.Refresh()
-			archive.Refresh()
+func (manager *taskManager) content() fyne.CanvasObject {
+	input := widget.NewEntry()
+	input.SetPlaceHolder("Enter task name...")
+
+	add := func() {
+		name := strings.TrimSpace(input.Text)
+		if name == "" {
+			return
 		}
+		tasks := append(append([]Task{}, manager.tasks...), Task{Name: name})
+		if manager.save(tasks) {
+			input.SetText("")
+		}
+	}
+	input.OnSubmitted = func(string) { add() }
+	manager.refresh()
 
-		for _, child := range archive.Objects {
-			if child == newCheckbox {
-				if newCheckbox.Checked != true {
-					archive.Remove(newCheckbox)
-					active.Add(newCheckbox)
-					archive.Refresh()
-					active.Refresh()
-				}
+	return container.NewBorder(
+		container.NewVBox(input, widget.NewButton("Add Task", add)),
+		nil, nil, nil,
+		container.NewVScroll(container.NewVBox(
+			widget.NewLabel("Active"),
+			manager.active,
+			widget.NewLabel("Archive"),
+			manager.archive,
+		)),
+	)
+}
+
+func (manager *taskManager) save(tasks []Task) bool {
+	if err := saveTasks(manager.path, tasks); err != nil {
+		dialog.ShowError(err, manager.window)
+		return false
+	}
+	manager.tasks = tasks
+	manager.refresh()
+	return true
+}
+
+func (manager *taskManager) refresh() {
+	manager.active.RemoveAll()
+	manager.archive.RemoveAll()
+
+	for index, task := range manager.tasks {
+		checkbox := widget.NewCheck(task.Name, nil)
+		checkbox.SetChecked(task.Checked)
+		checkbox.OnChanged = func(checked bool) {
+			tasks := append([]Task{}, manager.tasks...)
+			tasks[index].Checked = checked
+			if !manager.save(tasks) {
+				manager.refresh()
 			}
 		}
-	})
-
-	active.Add(newCheckbox)
-	active.Refresh()
-	
+		if task.Checked {
+			manager.archive.Add(checkbox)
+		} else {
+			manager.active.Add(checkbox)
+		}
+	}
 }
